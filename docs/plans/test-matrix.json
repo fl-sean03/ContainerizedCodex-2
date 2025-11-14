@@ -1,0 +1,332 @@
+{
+  "version": "2025-11-14T13:12Z",
+  "base_url_default": "http://localhost:8000",
+  "run_order": [
+    "mocked:M01-M09",
+    "live:L01-L07",
+    "rollback"
+  ],
+  "references": {
+    "projects_route": "backend/app/api/routes/projects.py:20",
+    "files_route": "backend/app/api/routes/files.py:12",
+    "jobs_route": "backend/app/api/routes/jobs.py:12",
+    "runner": "backend/app/services/codex_runner.py:60",
+    "compose": "docker-compose.yml:1"
+  },
+  "evidence_root_pattern": "docs/evidence/<ISO8601Z>/{mocked|live}/<ID>/",
+  "tests": [
+    {
+      "id": "M01",
+      "mode": "mocked",
+      "name": "Create Project (happy path)",
+      "method": "POST",
+      "endpoint": "/api/v1/projects/",
+      "payload": { "instruction": "Generate a minimal Python CLI project that prints the first 10 Fibonacci numbers and includes a basic test." },
+      "expected_status": 200,
+      "expected_response_assertions": [
+        "json.id is UUID",
+        "json.status == 'completed'",
+        "json.summary is non-empty",
+        "json.workspace_path is non-empty"
+      ],
+      "postconditions": [
+        "workspace contains: README.md, app.py, tests/test_cli.py",
+        ".codex/result.json.status == 'success'",
+        ".codex/result.json.created_files contains the 3 expected files"
+      ],
+      "evidence_files": [
+        "M01/response.json",
+        "M01/project_id.txt",
+        "M01/result.json",
+        "M01/result_excerpt.txt"
+      ],
+      "failure_handling": "If non-200 or missing artifacts, store response.json and notes.txt and mark FAIL"
+    },
+    {
+      "id": "M02",
+      "mode": "mocked",
+      "name": "List Files",
+      "method": "GET",
+      "endpoint": "/api/v1/{project_id}/files",
+      "expected_status": 200,
+      "expected_response_assertions": [
+        "includes .codex/request.json",
+        "includes .codex/result.json",
+        "includes README.md, app.py, tests/test_cli.py"
+      ],
+      "evidence_files": [
+        "M02/files.json",
+        "M02/dirlist.txt (optional)"
+      ],
+      "failure_handling": "If any expected file missing, store files.json and mark FAIL"
+    },
+    {
+      "id": "M03",
+      "mode": "mocked",
+      "name": "Get File (app.py)",
+      "method": "GET",
+      "endpoint": "/api/v1/{project_id}/files/app.py",
+      "expected_status": 200,
+      "expected_response_assertions": [
+        "json.contents length > 0"
+      ],
+      "evidence_files": [
+        "M03/app.json"
+      ],
+      "failure_handling": "If 4xx/5xx or empty contents, mark FAIL"
+    },
+    {
+      "id": "M04",
+      "mode": "mocked",
+      "name": "Edit Job (dummy completes)",
+      "method": "POST",
+      "endpoint": "/api/v1/{project_id}/jobs",
+      "payload": { "job_type": "edit", "instruction": "Append a comment line to app.py describing the change." },
+      "expected_status": 200,
+      "expected_response_assertions": [
+        "json.status == 'completed'"
+      ],
+      "postconditions": [
+        ".codex/result.json exists",
+        "result logs mention dummy worker"
+      ],
+      "evidence_files": [
+        "M04/response.json",
+        "M04/result.json",
+        "M04/result_excerpt.txt"
+      ],
+      "failure_handling": "If non-200 or missing result.json, mark FAIL"
+    },
+    {
+      "id": "M05",
+      "mode": "mocked",
+      "name": "Path Traversal Blocked",
+      "method": "GET",
+      "endpoint": "/api/v1/{project_id}/files/%2e%2e%2Fetc%2Fpasswd",
+      "expected_status": 400,
+      "expected_response_assertions": [
+        "error message mentions invalid/unsafe path"
+      ],
+      "evidence_files": [
+        "M05/response.json",
+        "M05/status.txt"
+      ],
+      "failure_handling": "Any non-400 → FAIL"
+    },
+    {
+      "id": "M06",
+      "mode": "mocked",
+      "name": "Absolute Path Blocked",
+      "method": "GET",
+      "endpoint": "/api/v1/{project_id}/files/%2Fetc%2Fpasswd",
+      "expected_status": 400,
+      "expected_response_assertions": [
+        "error message mentions invalid/unsafe path"
+      ],
+      "evidence_files": [
+        "M06/response.json",
+        "M06/status.txt"
+      ],
+      "failure_handling": "Any non-400 → FAIL"
+    },
+    {
+      "id": "M07",
+      "mode": "mocked",
+      "name": "Safe Nonexistent",
+      "method": "GET",
+      "endpoint": "/api/v1/{project_id}/files/does-not-exist.txt",
+      "expected_status": 404,
+      "expected_response_assertions": [
+        "error message mentions not found"
+      ],
+      "evidence_files": [
+        "M07/response.json",
+        "M07/status.txt"
+      ],
+      "failure_handling": "Any non-404 → FAIL"
+    },
+    {
+      "id": "M08",
+      "mode": "mocked",
+      "name": "Symlink Escape Blocked",
+      "method": "GET",
+      "endpoint": "/api/v1/{project_id}/files/symlinked-escape/secret",
+      "setup": "Create symlink in workspace pointing outside (document in notes)",
+      "expected_status": 400,
+      "expected_response_assertions": [
+        "invalid/unsafe path rejected"
+      ],
+      "evidence_files": [
+        "M08/response.json",
+        "M08/notes.txt"
+      ],
+      "failure_handling": "Any non-400 → FAIL"
+    },
+    {
+      "id": "M09",
+      "mode": "mocked",
+      "name": "Workspace Artifacts",
+      "method": "GET",
+      "endpoint": "/api/v1/{project_id}/files/.codex/result.json",
+      "expected_status": 200,
+      "expected_response_assertions": [
+        "result.status == 'success'",
+        "created_files include README.md, app.py, tests/test_cli.py"
+      ],
+      "evidence_files": [
+        "M09/result.json",
+        "M09/result_excerpt.txt",
+        "M09/files.json (optional)",
+        "M09/dirlist.txt (optional)"
+      ],
+      "failure_handling": "Missing or malformed result.json → FAIL"
+    },
+    {
+      "id": "L01",
+      "mode": "live",
+      "name": "Worker Env Presence (instrumentation)",
+      "method": "POST",
+      "endpoint": "/api/v1/projects/",
+      "payload": { "instruction": "Generate a minimal Python CLI project that prints the first 10 Fibonacci numbers and includes a basic test." },
+      "prereq": [
+        ".env: USE_DUMMY_WORKER=False",
+        ".env or compose: CODEX_WORKER_IMAGE=codex-worker:latest",
+        "docker socket mounted in compose",
+        "backend image has docker CLI"
+      ],
+      "expected_status": 200,
+      "expected_response_assertions": [
+        "project created; id present"
+      ],
+      "postconditions": [
+        ".codex/result.json contains logs entries: OPENAI_API_KEY=present|absent, OPENAI_ORG_ID=present|absent, OPENAI_PROJECT=present|absent",
+        "no secret values printed",
+        "status in {'success','error'} with summary"
+      ],
+      "evidence_files": [
+        "L01/response.json",
+        "L01/project_id.txt",
+        "L01/result.json",
+        "L01/result_excerpt.txt"
+      ],
+      "failure_handling": "Missing presence-only logs or any leaked value → FAIL (redact in saved evidence if needed)"
+    },
+    {
+      "id": "L02",
+      "mode": "live",
+      "name": "Create Project Live",
+      "method": "POST",
+      "endpoint": "/api/v1/projects/",
+      "payload": { "instruction": "Generate a minimal Python CLI project that prints the first 10 Fibonacci numbers and includes a basic test." },
+      "expected_status": 200,
+      "expected_response_assertions": [
+        "result.json exists with status and summary"
+      ],
+      "postconditions": [
+        "README.md, app.py, tests/test_cli.py created by live minimal worker (if success)"
+      ],
+      "evidence_files": [
+        "L02/response.json",
+        "L02/result.json",
+        "L02/result_excerpt.txt",
+        "L02/files.json"
+      ],
+      "failure_handling": "Non-200 or missing result.json → FAIL"
+    },
+    {
+      "id": "L03",
+      "mode": "live",
+      "name": "List Files Live",
+      "method": "GET",
+      "endpoint": "/api/v1/{project_id}/files",
+      "expected_status": 200,
+      "expected_response_assertions": [
+        "includes .codex/request.json and .codex/result.json",
+        "includes README.md, app.py, tests/test_cli.py on success"
+      ],
+      "evidence_files": [
+        "L03/files.json"
+      ],
+      "failure_handling": "Missing .codex artifacts → FAIL"
+    },
+    {
+      "id": "L04",
+      "mode": "live",
+      "name": "Get Representative File (app.py)",
+      "method": "GET",
+      "endpoint": "/api/v1/{project_id}/files/app.py",
+      "expected_status": 200,
+      "expected_response_assertions": [
+        "json.contents length > 0"
+      ],
+      "evidence_files": [
+        "L04/app.json",
+        "L04/status.txt"
+      ],
+      "failure_handling": "4xx/5xx or empty contents → FAIL"
+    },
+    {
+      "id": "L05",
+      "mode": "live",
+      "name": "Edit Job Live",
+      "method": "POST",
+      "endpoint": "/api/v1/{project_id}/jobs",
+      "payload": { "job_type": "edit", "instruction": "Append a comment line to app.py describing the change." },
+      "expected_status": 200,
+      "expected_response_assertions": [
+        "result.json shows modified_files or structured error"
+      ],
+      "postconditions": [
+        "presence-only env logs remain in result logs"
+      ],
+      "evidence_files": [
+        "L05/response.json",
+        "L05/result.json",
+        "L05/result_excerpt.txt"
+      ],
+      "failure_handling": "Non-200 or missing result.json → FAIL"
+    },
+    {
+      "id": "L06",
+      "mode": "live",
+      "name": "Error Handling (force_error)",
+      "method": "POST",
+      "endpoint": "/api/v1/projects/",
+      "payload": { "instruction": "force_error: provoke a controlled failure" },
+      "expected_status": 200,
+      "expected_response_assertions": [
+        "result.json.status == 'error'",
+        "errors includes 'forced_error'"
+      ],
+      "postconditions": [
+        "API remains responsive"
+      ],
+      "evidence_files": [
+        "L06/response.json",
+        "L06/result.json",
+        "L06/result_excerpt.txt",
+        "L06/notes.txt"
+      ],
+      "failure_handling": "If status != error or errors missing, mark FAIL"
+    },
+    {
+      "id": "L07",
+      "mode": "live",
+      "name": "Rollback to Mocked",
+      "method": "N/A",
+      "endpoint": "N/A",
+      "expected_status": 0,
+      "expected_response_assertions": [],
+      "postconditions": [
+        "Set USE_DUMMY_WORKER=True in .env",
+        "docker-compose build && up",
+        "Re-run M01–M04 successfully"
+      ],
+      "evidence_files": [
+        "L07/notes.txt",
+        "mocked/RERUN/summary.txt"
+      ],
+      "failure_handling": "If mocked flow does not restore, mark FAIL"
+    }
+  ]
+}

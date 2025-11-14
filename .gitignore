@@ -1,0 +1,45 @@
+# Python artifacts
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs and coverage
+*.log
+.coverage*
+*.coverage
+.cache/
+
+# Environment files (never commit real secrets)
+.env
+.env.live
+.env.*
+!.env.example
+!.env.live.example
+
+# Database and local state
+codex.db
+
+# Workspaces and generated artifacts
+backend/workspaces/
+workspaces/
+
+# Evidence (test artifacts)
+docs/evidence/
+tools/http/docs/evidence/
+
+# IDE/OS cruft
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Archives and dumps
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# Docker misc
+*.pid
